@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GraphLens</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <aside class="panel">
+      <h1>GraphLens</h1>
+      <input id="search" type="search" placeholder="Search symbols or files" />
+      <select id="community"></select>
+      <select id="nodeType">
+        <option value="all">All node types</option>
+        <option value="module">Files only</option>
+        <option value="function">Functions only</option>
+        <option value="class">Classes only</option>
+      </select>
+      <select id="edgeType">
+        <option value="all">All edge types</option>
+        <option value="imports">Imports only</option>
+        <option value="calls">Calls only</option>
+      </select>
+      <label class="toggle"><input id="hideExternal" type="checkbox" checked /> Hide external nodes</label>
+      <button id="fit">Fit to screen</button>
+      <div id="summary" class="summary"></div>
+      <div id="details" class="details"></div>
+      <div id="legend" class="legend"></div>
+    </aside>
+    <main id="graph"></main>
+    <div id="tooltip" class="tooltip"></div>
+    <script src="/graph.js"></script>
+  </body>
+</html>
