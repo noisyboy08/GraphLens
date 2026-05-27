@@ -15,6 +15,13 @@ class VizHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(Path(__file__).parents[2] / "frontend"), **kwargs)
 
+    def end_headers(self) -> None:
+        """Add cache disable headers to prevent stale local files."""
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
     def do_GET(self) -> None:
         """Handle API and static requests."""
 

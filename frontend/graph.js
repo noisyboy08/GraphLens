@@ -8,8 +8,17 @@ const edgeTypeSelect = document.querySelector("#edgeType");
 const hideExternal = document.querySelector("#hideExternal");
 const fitButton = document.querySelector("#fit");
 const summary = document.querySelector("#summary");
-const width = window.innerWidth;
-const height = window.innerHeight;
+let width = window.innerWidth || 1200;
+let height = window.innerHeight || 800;
+
+window.addEventListener("resize", () => {
+  width = window.innerWidth || 1200;
+  height = window.innerHeight || 800;
+  const svg = document.querySelector("svg");
+  if (svg) {
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  }
+});
 const palette = ["#4cc9f0", "#f72585", "#90be6d", "#f9c74f", "#b5179e", "#43aa8b", "#f3722c", "#577590", "#f94144", "#277da1"];
 
 let state = { scale: 1, x: 0, y: 0, dragging: null, panning: false, panStart: null };
@@ -19,31 +28,40 @@ fetch("/api/graph")
   .then((data) => render(data));
 
 function render(data) {
-  const nodes = data.nodes.map((node, i) => ({
-    ...node,
-    x: width / 2 + Math.cos(i) * 180,
-    y: height / 2 + Math.sin(i) * 180,
-    vx: 0,
-    vy: 0,
-  }));
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const links = data.links
-    .map((link) => ({ ...link, source: byId.get(link.source), target: byId.get(link.target) }))
-    .filter((link) => link.source && link.target);
-  const degree = new Map(nodes.map((node) => [node.id, 0]));
-  links.forEach((link) => {
-    degree.set(link.source.id, degree.get(link.source.id) + 1);
-    degree.set(link.target.id, degree.get(link.target.id) + 1);
-  });
+  try {
+    const nodes = data.nodes.map((node, i) => ({
+      ...node,
+      x: width / 2 + Math.cos(i) * 180,
+      y: height / 2 + Math.sin(i) * 180,
+      vx: 0,
+      vy: 0,
+    }));
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const links = data.links
+      .map((link) => ({ ...link, source: byId.get(link.source), target: byId.get(link.target) }))
+      .filter((link) => link.source && link.target);
+    const degree = new Map(nodes.map((node) => [node.id, 0]));
+    links.forEach((link) => {
+      degree.set(link.source.id, degree.get(link.source.id) + 1);
+      degree.set(link.target.id, degree.get(link.target.id) + 1);
+    });
 
-  const svg = makeSvg(nodes, links, degree);
-  graphEl.append(svg);
-  populateControls(nodes);
-  populateSummary(nodes, links);
-  bindFilters(svg, nodes, links);
-  bindPan(svg);
-  fitButton.addEventListener("click", () => fitToScreen(nodes));
-  runLayout(svg, nodes, links);
+    const svg = makeSvg(nodes, links, degree);
+    graphEl.append(svg);
+    populateControls(nodes);
+    populateSummary(nodes, links);
+    bindFilters(svg, nodes, links);
+    bindPan(svg);
+    fitButton.addEventListener("click", () => fitToScreen(nodes));
+    
+    // Fit immediately on mount
+    setTimeout(() => fitToScreen(nodes), 50);
+    
+    runLayout(svg, nodes, links);
+  } catch (err) {
+    console.error("Render failed:", err);
+    summary.innerHTML = `<span style="color:#ef4444;font-weight:600;">Render Error: ${err.message}</span>`;
+  }
 }
 
 function makeSvg(nodes, links, degree) {
@@ -74,10 +92,22 @@ function makeSvg(nodes, links, degree) {
 function runLayout(svg, nodes, links) {
   let ticks = 0;
   const timer = setInterval(() => {
-    step(nodes, links, ticks);
-    draw(nodes, links);
-    ticks += 1;
-    if (ticks > 420) clearInterval(timer);
+    try {
+      step(nodes, links, ticks);
+      draw(nodes, links);
+      ticks += 1;
+      
+      // Auto-fit screen periodically and at the end of the simulation
+      if (ticks === 1 || ticks === 60 || ticks === 180 || ticks === 300 || ticks === 420) {
+        fitToScreen(nodes);
+      }
+      
+      if (ticks > 420) clearInterval(timer);
+    } catch (err) {
+      clearInterval(timer);
+      console.error("Layout tick failed:", err);
+      summary.innerHTML = `<span style="color:#ef4444;font-weight:600;">Layout Error: ${err.message}</span>`;
+    }
   }, 16);
   svg.addEventListener("pointermove", (event) => {
     if (!state.dragging) return;
@@ -102,6 +132,15 @@ function step(nodes, links, tick) {
   nodes.forEach((node) => {
     node.vx += (width / 2 - node.x) * 0.0008;
     node.vy += (height / 2 - node.y) * 0.0008;
+    
+    // Clamp velocity to prevent NaN explosion
+    const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+    const maxSpeed = 20;
+    if (speed > maxSpeed) {
+      node.vx = (node.vx / speed) * maxSpeed;
+      node.vy = (node.vy / speed) * maxSpeed;
+    }
+    
     node.vx *= 0.86;
     node.vy *= 0.86;
     node.x += node.vx;
@@ -124,11 +163,14 @@ function attract(a, b, alpha) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-  const force = (dist - 110) * 0.008 * alpha;
-  a.vx += dx * force;
-  a.vy += dy * force;
-  b.vx -= dx * force;
-  b.vy -= dy * force;
+  // Normalize vector to avoid quadratic spring force explosion
+  const force = (dist - 110) * 0.04 * alpha;
+  const fx = Math.max(-12, Math.min(12, (dx / dist) * force));
+  const fy = Math.max(-12, Math.min(12, (dy / dist) * force));
+  a.vx += fx;
+  a.vy += fy;
+  b.vx -= fx;
+  b.vy -= fy;
 }
 
 function draw(nodes, links) {
